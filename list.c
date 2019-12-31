@@ -1,15 +1,12 @@
 #include <stdint.h>
 #include "list.h"
 
-void list_init(list_t const src)
-{
+void list_init(list_t const src) {
     src->next = src;
     src->prev = src;
 }
 
-void list_add_tail(list_t const src,
-                   list_t const item)
-{
+void list_add_tail(list_t const src, list_t const item) {
     list_t const old_tail = src->prev;
     src->prev = item;
     item->next = src;
@@ -17,9 +14,7 @@ void list_add_tail(list_t const src,
     old_tail->next = item;
 }
 
-void list_add_front(list_t const src,
-                    list_t const item)
-{
+void list_add_front(list_t const src, list_t const item) {
     list_t const old_head = src->next;
     old_head->prev = item;
     item->next = old_head;
@@ -27,17 +22,14 @@ void list_add_front(list_t const src,
     src->next = item;
 }
 
-void list_remove(list_t const item)
-{
+void list_remove(list_t const item) {
     list_t prev = item->prev;
     list_t next = item->next;
     prev->next = next;
     next->prev = prev;
 }
 
-void list_move(list_t src,
-               list_t const dest)
-{
+void list_move(list_t src, list_t const dest) {
     list_t node = src->next;
 
     while (node != src) {
@@ -48,8 +40,7 @@ void list_move(list_t src,
     }
 }
 
-uint64_t list_count(list_t const src)
-{
+uint64_t list_count(list_t const src) {
     uint64_t count = 0;
     list_t node = src->next;
 
@@ -59,3 +50,8 @@ uint64_t list_count(list_t const src)
     }
     return count;
 }
+
+int32_t list_empty(list_t const src) {
+    return src->next == src;
+}
+

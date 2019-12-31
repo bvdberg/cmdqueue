@@ -38,11 +38,10 @@ void mycmdqueue_init(myCmdQueue* handle,
 
     const int32_t num_commands = 1;
     myCmdQueue phandle = *handle;
-    MyCmd* cmd;
 
     phandle->cmdqueue = cmdqueue_create("mycmdqueue", mycmd_callback, phandle, num_commands, sizeof(MyCmd));
 
-    cmdqueue_getcmd_sync(phandle->cmdqueue, (Cmd **)&cmd);
+    MyCmd* cmd = (MyCmd*)cmdqueue_getcmd_sync(phandle->cmdqueue);
     cmd->type = INIT;
     cmdqueue_sync_cmd(phandle->cmdqueue, &cmd->cmd);
 
@@ -52,9 +51,7 @@ void mycmdqueue_init(myCmdQueue* handle,
 
 void mycmdqueue_deinit(myCmdQueue handle)
 {
-    MyCmd* cmd;
-
-    cmdqueue_getcmd_sync(handle->cmdqueue, (Cmd **)&cmd);
+    MyCmd* cmd = (MyCmd*)cmdqueue_getcmd_sync(handle->cmdqueue);
     cmd->type = DEINIT;
     cmdqueue_sync_cmd(handle->cmdqueue, &cmd->cmd);
 
@@ -64,16 +61,14 @@ void mycmdqueue_deinit(myCmdQueue handle)
 
 void mycmdqueue_start(myCmdQueue handle)
 {
-    MyCmd* cmd;
-    cmdqueue_getcmd_sync(handle->cmdqueue, (Cmd **)&cmd);
+    MyCmd* cmd = (MyCmd*)cmdqueue_getcmd_sync(handle->cmdqueue);
     cmd->type = START;
     cmdqueue_sync_cmd(handle->cmdqueue, &cmd->cmd);
 }
 
 void mycmdqueue_stop(myCmdQueue handle)
 {
-    MyCmd* cmd;
-    cmdqueue_getcmd_sync(handle->cmdqueue, (Cmd **)&cmd);
+    MyCmd* cmd = (MyCmd*)cmdqueue_getcmd_sync(handle->cmdqueue);
     cmd->type = STOP;
     cmdqueue_sync_cmd(handle->cmdqueue, &cmd->cmd);
 }

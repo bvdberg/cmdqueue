@@ -12,7 +12,7 @@ extern "C" {
 
 typedef struct {
     struct list_tag head;
-    uint32_t type;
+    uint32_t type;      // SYNC / ASYNC
 } Cmd;
 
 typedef struct CmdQueue_ CmdQueue;
@@ -30,9 +30,9 @@ void cmdqueue_flush(CmdQueue* handle,
                     void* cookie,
                     uint32_t* count);
 
-void cmdqueue_getcmd_sync(CmdQueue* handle, Cmd** cmd);
+Cmd* cmdqueue_getcmd_sync(CmdQueue* handle);
 
-void cmdqueue_getcmd_async(CmdQueue* handle, Cmd** cmd);
+Cmd* cmdqueue_getcmd_async(CmdQueue* handle);
 
 void cmdqueue_sync_cmd(CmdQueue* handle, Cmd* cmd);
 
