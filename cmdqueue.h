@@ -10,44 +10,35 @@
 extern "C" {
 #endif
 
-    struct cmd {
-        struct list_tag head;
-        int32_t type;
-    };
+typedef struct {
+    struct list_tag head;
+    uint32_t type;
+} Cmd;
 
-    typedef struct cmdqueue_tag * cmdqueue_t;
+typedef struct CmdQueue_ CmdQueue;
 
-    int32_t cmdqueue_init(cmdqueue_t *handle,
-                          const char *name,
-                          void (*cmd_callback)(void *cookie,
-                                               struct cmd *cmd),
-                          void *cookie,
+CmdQueue* cmdqueue_create(const char* name,
+                          void (*cmd_callback)(void* cookie, Cmd* cmd),
+                          void* cookie,
                           uint32_t num_commands,
                           uint32_t size_cmd);
 
-    int32_t cmdqueue_deinit(cmdqueue_t handle);
+void cmdqueue_destroy(CmdQueue* handle);
 
-    void cmdqueue_flush(cmdqueue_t handle,
-                        void (*flush_callback)(void *cookie,
-                                               struct cmd *cmd,
-                                               uint32_t *count),
-                        void *cookie,
-                        uint32_t *count);
+void cmdqueue_flush(CmdQueue* handle,
+                    void (*flush_callback)(void* cookie, Cmd* cmd, uint32_t* count),
+                    void* cookie,
+                    uint32_t* count);
 
-    void cmdqueue_getcmd_sync(cmdqueue_t handle,
-                              struct cmd **cmd);
+void cmdqueue_getcmd_sync(CmdQueue* handle, Cmd** cmd);
 
-    void cmdqueue_getcmd_async(cmdqueue_t handle,
-                               struct cmd **cmd);
+void cmdqueue_getcmd_async(CmdQueue* handle, Cmd** cmd);
 
-    void cmdqueue_sync_cmd(cmdqueue_t handle,
-                           struct cmd *cmd);
+void cmdqueue_sync_cmd(CmdQueue* handle, Cmd* cmd);
 
-    void cmdqueue_sync_highprio_cmd(cmdqueue_t handle,
-                                    struct cmd *cmd);
+void cmdqueue_sync_highprio_cmd(CmdQueue* handle, Cmd* cmd);
 
-    void cmdqueue_async_cmd(cmdqueue_t handle,
-                            struct cmd *cmd);
+void cmdqueue_async_cmd(CmdQueue* handle, Cmd* cmd);
 
 #ifdef __cplusplus
 }

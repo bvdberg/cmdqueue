@@ -8,44 +8,44 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-    
-    enum mycmd_type {
-        INIT,
-        DEINIT,
-        START,
-        STOP,
-    };
 
-    enum mycallback_type {
-        START_CALLED,
-        STOP_CALLED,
-    };
+typedef enum {
+    INIT,
+    DEINIT,
+    START,
+    STOP,
+} MyCmdType;
 
-    struct mycmd {
-        struct cmd cmd;
-        int32_t type;
-        union {            
-            struct {
-                int32_t dontcare;
-            } mycmd_start;
+typedef enum {
+    START_CALLED,
+    STOP_CALLED,
+} MyCallbackType;
 
-            struct {
-                int32_t dontcare;
-            } mycmd_stop;
-        } mycmd;
-    };
+typedef struct {
+    Cmd cmd;    // must be first
+    uint32_t type;
+    union {
+        struct {
+            int32_t dontcare;
+        } mycmd_start;
 
-    typedef struct mycmdqueue_tag * mycmdqueue_t;
+        struct {
+            int32_t dontcare;
+        } mycmd_stop;
+    } mycmd;
+} MyCmd;
 
-    int32_t mycmdqueue_init(mycmdqueue_t * handle, 
-                            void *cookie, 
-                            int32_t (*mycmdqueue_callback)(void *cookie,
-                                                           int32_t callback_type,
-                                                           void *data,
-                                                           int32_t len));
-    int32_t mycmdqueue_deinit(mycmdqueue_t handle);
-    void mycmdqueue_start(mycmdqueue_t handle);
-    void mycmdqueue_stop(mycmdqueue_t handle);
+typedef struct myCmdQueue_* myCmdQueue;
+
+void mycmdqueue_init(myCmdQueue* handle,
+                     void *cookie,
+                     int32_t (*mycmdqueue_callback)(void *cookie,
+                                                    int32_t callback_type,
+                                                    void *data,
+                                                    int32_t len));
+void mycmdqueue_deinit(myCmdQueue handle);
+void mycmdqueue_start(myCmdQueue handle);
+void mycmdqueue_stop(myCmdQueue handle);
 
 #ifdef __cplusplus
 }

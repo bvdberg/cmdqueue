@@ -3,105 +3,91 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include "pthread.h"
-
 #include "cmdqueue.h"
 #include "util.h"
 
-enum cmdqueue_mode {
+typedef enum {
     CMDQUEUE_ASYNC = 0x0,
     CMDQUEUE_SYNC  = 0x1,
-};
+} Mode;
 
-enum cmdqueue_prio {
+typedef enum {
     CMDQUEUE_PRIO_LOW  = 0x0,
     CMDQUEUE_PRIO_HIGH = 0x1,
-};
+} Prio;
 
-struct queue
-{
-    struct list_tag head_prio;
-    struct list_tag head;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
-};
 
-enum queue_type {
-    CMDFREE,
+typedef enum {
+    CMDFREE = 0,
     CMDTODO,
     CMDDONE,
-};
+} QueueType;
 
-struct cmdqueue_tag {
-    struct queue queues[3];
-    const char *name;
+typedef struct {
+    struct list_tag head_prio;  // list of prio commands
+    struct list_tag head;       // list of command
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+} Queue;
+
+struct CmdQueue_ {
+    Queue queues[3];        // QueueType: FREE, TODO, DONE
+    const char* name;       // no ownership
     pthread_t tid;
     int32_t stop;
-    void *cookie;
-    void (*cmd_callback)(void *cookie, struct cmd * cmd);
-    void *cmdlist;
+    void* cookie;
+    void (*cmd_callback)(void* cookie, Cmd*  cmd);
+    void* cmdlist;
 };
 
-static void cmdqueue_wait_getcmd(cmdqueue_t handle,
-                                 struct cmd **cmd)
+static void cmdqueue_wait_getcmd(CmdQueue* handle, Cmd** cmd)
 {
-    list_t node;
-
     PTHREAD_CHK(pthread_mutex_lock(&handle->queues[CMDFREE].mutex));
 
     while (!list_count(&handle->queues[CMDFREE].head)) {
         PTHREAD_CHK(pthread_cond_wait(&handle->queues[CMDFREE].cond,
-                    &handle->queues[CMDFREE].mutex));
+                                      &handle->queues[CMDFREE].mutex));
     }
 
-    node = handle->queues[CMDFREE].head.next;
+    list_t node = handle->queues[CMDFREE].head.next;
     list_remove(node);
-    *cmd = (struct cmd*)node;
+    *cmd = (Cmd*)node;
 
     PTHREAD_CHK(pthread_mutex_unlock(&handle->queues[CMDFREE].mutex));
 }
 
-void cmdqueue_getcmd_sync(cmdqueue_t handle,
-                          struct cmd **cmd)
+void cmdqueue_getcmd_sync(CmdQueue* handle, Cmd** cmd)
 {
-    cmdqueue_getcmd_async(handle,
-                          cmd);
-    if (!*cmd) cmdqueue_wait_getcmd(handle,
-                                    cmd);
+    cmdqueue_getcmd_async(handle, cmd);
+    if (!*cmd) cmdqueue_wait_getcmd(handle, cmd);
 }
 
-void cmdqueue_getcmd_async(cmdqueue_t handle,
-                           struct cmd **cmd)
+void cmdqueue_getcmd_async(CmdQueue* handle, Cmd** cmd)
 {
-    list_t node;
-    *cmd = 0;
+    *cmd = NULL;
 
     PTHREAD_CHK(pthread_mutex_lock(&handle->queues[CMDFREE].mutex));
 
     if (list_count(&handle->queues[CMDFREE].head)) {
-        node = handle->queues[CMDFREE].head.next;
+        list_t node = handle->queues[CMDFREE].head.next;
         list_remove(node);
-        *cmd = (struct cmd*)node;
+        *cmd = (Cmd*)node;
     }
 
     PTHREAD_CHK(pthread_mutex_unlock(&handle->queues[CMDFREE].mutex));
 }
 
-static void cmdqueue_schedule_cmd(cmdqueue_t handle,
-                                  struct cmd *cmd,
-                                  int32_t sync,
-                                  int32_t prio)
+static void cmdqueue_schedule_cmd(CmdQueue* handle, Cmd* cmd, uint32_t sync, int32_t prio)
 {
     list_t list = (prio == CMDQUEUE_PRIO_LOW) ? &handle->queues[CMDTODO].head : &handle->queues[CMDTODO].head_prio;
     cmd->type = sync;
     PTHREAD_CHK(pthread_mutex_lock(&handle->queues[CMDTODO].mutex));
-    list_add_tail(list,
-                  &cmd->head);
+    list_add_tail(list, &cmd->head);
     PTHREAD_CHK(pthread_cond_broadcast(&handle->queues[CMDTODO].cond));
     PTHREAD_CHK(pthread_mutex_unlock(&handle->queues[CMDTODO].mutex));
 }
 
-static int32_t cmd_finished(list_t const src, struct cmd *cmd)
+static int32_t cmd_finished(list_t const src, Cmd* cmd)
 {
     uint64_t count = 0;
     int32_t done = 0;
@@ -116,7 +102,7 @@ static int32_t cmd_finished(list_t const src, struct cmd *cmd)
         node = src->next;
 
         while (node != src && !done) {
-            done = (struct cmd *)node == cmd;
+            done = (Cmd* )node == cmd;
             node = node->next;
         }
     }
@@ -124,14 +110,13 @@ static int32_t cmd_finished(list_t const src, struct cmd *cmd)
     return done;
 }
 
-static void cmdqueue_wait_cmd(cmdqueue_t handle, struct cmd *cmd)
+static void cmdqueue_wait_cmd(CmdQueue* handle, Cmd* cmd)
 {
 
     PTHREAD_CHK(pthread_mutex_lock(&handle->queues[CMDDONE].mutex));
 
     while (!cmd_finished(&handle->queues[CMDDONE].head, cmd) ) {
-        PTHREAD_CHK(pthread_cond_wait(&handle->queues[CMDDONE].cond,
-                    &handle->queues[CMDDONE].mutex));
+        PTHREAD_CHK(pthread_cond_wait(&handle->queues[CMDDONE].cond, &handle->queues[CMDDONE].mutex));
     }
 
     list_remove(&cmd->head);
@@ -144,70 +129,55 @@ static void cmdqueue_wait_cmd(cmdqueue_t handle, struct cmd *cmd)
     PTHREAD_CHK(pthread_mutex_unlock(&handle->queues[CMDFREE].mutex));
 }
 
-void cmdqueue_sync_cmd(cmdqueue_t handle,
-                       struct cmd *cmd)
+void cmdqueue_sync_cmd(CmdQueue* handle, Cmd* cmd)
 {
-    cmdqueue_schedule_cmd(handle,
-                          cmd,
-                          CMDQUEUE_SYNC,
-                          CMDQUEUE_PRIO_LOW);
+    cmdqueue_schedule_cmd(handle, cmd, CMDQUEUE_SYNC, CMDQUEUE_PRIO_LOW);
 
     cmdqueue_wait_cmd(handle, cmd);
 }
 
-void cmdqueue_sync_highprio_cmd(cmdqueue_t handle,
-                                struct cmd *cmd)
+void cmdqueue_sync_highprio_cmd(CmdQueue* handle, Cmd* cmd)
 {
-    cmdqueue_schedule_cmd(handle,
-                          cmd,
-                          CMDQUEUE_SYNC,
-                          CMDQUEUE_PRIO_HIGH);
-
+    cmdqueue_schedule_cmd(handle, cmd, CMDQUEUE_SYNC, CMDQUEUE_PRIO_HIGH);
     cmdqueue_wait_cmd(handle, cmd);
 }
 
-void cmdqueue_async_cmd(cmdqueue_t handle,
-                        struct cmd *cmd)
+void cmdqueue_async_cmd(CmdQueue* handle, Cmd* cmd)
 {
-    cmdqueue_schedule_cmd(handle,
-                          cmd,
-                          CMDQUEUE_ASYNC,
-                          CMDQUEUE_PRIO_LOW);
+    cmdqueue_schedule_cmd(handle, cmd, CMDQUEUE_ASYNC, CMDQUEUE_PRIO_LOW);
 }
 
-static void * thread_func(void *arg)
+static void* thread_func(void* arg)
 {
-    cmdqueue_t handle= (cmdqueue_t)arg;
-    struct cmd dummy_cmd;
+    CmdQueue* handle= (CmdQueue*)arg;
+    Cmd dummy_cmd;
 
     while (1) {
-        struct cmd *cmd = &dummy_cmd;
-        enum queue_type type;
+        Cmd* cmd = &dummy_cmd;
 
         PTHREAD_CHK(pthread_mutex_lock(&handle->queues[CMDTODO].mutex));
 
         while (!list_count(&handle->queues[CMDTODO].head) && !list_count(&handle->queues[CMDTODO].head_prio) && !handle->stop) {
-            PTHREAD_CHK(pthread_cond_wait(&handle->queues[CMDTODO].cond,
-                        &handle->queues[CMDTODO].mutex));
+            PTHREAD_CHK(pthread_cond_wait(&handle->queues[CMDTODO].cond, &handle->queues[CMDTODO].mutex));
         }
 
         if (!handle->stop) {
             if (list_count(&handle->queues[CMDTODO].head_prio)) {
-                cmd = (struct cmd*)handle->queues[CMDTODO].head_prio.next;
+                cmd = (Cmd*)handle->queues[CMDTODO].head_prio.next;
                 list_remove(&cmd->head);
             } else {
-                cmd = (struct cmd*)handle->queues[CMDTODO].head.next;
+                cmd = (Cmd*)handle->queues[CMDTODO].head.next;
                 list_remove(&cmd->head);
             }
         }
 
         PTHREAD_CHK(pthread_mutex_unlock(&handle->queues[CMDTODO].mutex));
 
-        if (handle->stop) return 0;
+        if (handle->stop) break;
 
         handle->cmd_callback(handle->cookie, cmd);
 
-        type = cmd->type ? CMDDONE : CMDFREE;
+        QueueType type = cmd->type ? CMDDONE : CMDFREE;
 
         PTHREAD_CHK(pthread_mutex_lock(&handle->queues[type].mutex));
         list_add_tail(&handle->queues[type].head, &cmd->head);
@@ -218,58 +188,42 @@ static void * thread_func(void *arg)
     return 0;
 }
 
-int32_t cmdqueue_init(cmdqueue_t *handle,
-                      const char *name,
-                      void (*cmd_callback)(void *cookie, struct cmd *cmd),
-                      void *cookie,
-                      uint32_t num_commands,
-                      uint32_t size_cmd)
+CmdQueue* cmdqueue_create(const char* name,
+                          void (*cmd_callback)(void* cookie, Cmd* cmd),
+                          void* cookie,
+                          uint32_t num_commands,
+                          uint32_t size_cmd)
 {
-    *handle = malloc(sizeof(struct cmdqueue_tag));
+    CmdQueue* handle = calloc(1, sizeof(CmdQueue));
+    assert(handle);
 
-    if (*handle) {
-        cmdqueue_t phandle = *handle;
-        uint8_t *iter;
-        uint32_t i;
-
-        for (i=0;i<ARRAY_SIZE(phandle->queues);i++) {
-            list_init(&phandle->queues[i].head);
-            list_init(&phandle->queues[i].head_prio);
-            PTHREAD_CHK(pthread_mutex_init(&phandle->queues[i].mutex, 0));
-            PTHREAD_CHK(pthread_cond_init(&phandle->queues[i].cond, 0));
-        }
-
-        phandle->stop = 0;
-        phandle->cookie = cookie;
-        phandle->cmd_callback = cmd_callback;
-        phandle->name = name;
-
-        phandle->cmdlist = malloc(num_commands*size_cmd);
-
-        iter = (uint8_t*)phandle->cmdlist;
-        for (i=0;i<num_commands;i++) {
-            struct cmd *cmd = (struct cmd*)iter;
-            list_add_tail(&phandle->queues[CMDFREE].head,
-                          &cmd->head);
-            iter += size_cmd;
-        }
-
-        PTHREAD_CHK(pthread_create(&phandle->tid, 
-                                   0, 
-                                   thread_func, 
-                                   phandle));
-    } else {
-        return 1;
+    for (uint32_t i=0; i<ARRAY_SIZE(handle->queues); i++) {
+        list_init(&handle->queues[i].head_prio);
+        list_init(&handle->queues[i].head);
+        PTHREAD_CHK(pthread_mutex_init(&handle->queues[i].mutex, 0));
+        PTHREAD_CHK(pthread_cond_init(&handle->queues[i].cond, 0));
     }
-    
-    return 0;
+
+    handle->name = name;
+    handle->tid = 0;
+    handle->stop = 0;
+    handle->cookie = cookie;
+    handle->cmd_callback = cmd_callback;
+    handle->cmdlist = malloc(num_commands*size_cmd);
+
+    uint8_t* iter = (uint8_t*)handle->cmdlist;
+    for (uint32_t i=0; i<num_commands; i++) {
+        Cmd* cmd = (Cmd*)iter;
+        list_add_tail(&handle->queues[CMDFREE].head, &cmd->head);
+        iter += size_cmd;
+    }
+
+    PTHREAD_CHK(pthread_create(&handle->tid, 0, thread_func, handle));
+    return handle;
 }
 
-int32_t cmdqueue_deinit(cmdqueue_t handle)
+void cmdqueue_destroy(CmdQueue* handle)
 {
-    uint32_t i;
-    if (!handle) return 1;
-
     PTHREAD_CHK(pthread_mutex_lock(&handle->queues[CMDTODO].mutex));
     handle->stop = 1;
     PTHREAD_CHK(pthread_cond_broadcast(&handle->queues[CMDTODO].cond));
@@ -277,39 +231,37 @@ int32_t cmdqueue_deinit(cmdqueue_t handle)
 
     PTHREAD_CHK(pthread_join(handle->tid, 0));
 
-    for (i=0;i<ARRAY_SIZE(handle->queues);i++) {
+    for (uint32_t i=0; i<ARRAY_SIZE(handle->queues); i++) {
         PTHREAD_CHK(pthread_mutex_destroy(&handle->queues[i].mutex));
         PTHREAD_CHK(pthread_cond_destroy(&handle->queues[i].cond));
     }
 
     free(handle->cmdlist);
     free(handle);
-    return 0;
 }
 
 /* only for async commands on the non prio head */
-void cmdqueue_flush(cmdqueue_t handle,
-                    void (*flush_callback)(void *cookie, struct cmd *cmd, uint32_t *count),
-                    void *cookie,
-                    uint32_t *count)
+void cmdqueue_flush(CmdQueue* handle,
+                    void (*flush_callback)(void* cookie, Cmd* cmd, uint32_t* count),
+                    void* cookie,
+                    uint32_t* count)
 {
-    list_t src, dest, node;
-
     PTHREAD_CHK(pthread_mutex_lock(&handle->queues[CMDTODO].mutex));
     PTHREAD_CHK(pthread_mutex_lock(&handle->queues[CMDFREE].mutex));
 
-    src = &handle->queues[CMDTODO].head;
-    dest = &handle->queues[CMDFREE].head;
-    node = src->next;
+    list_t src = &handle->queues[CMDTODO].head;
+    list_t dest = &handle->queues[CMDFREE].head;
+    list_t node = src->next;
 
     while (node != src) {
         list_t const tmp_node = node;
         node = node->next;
         list_remove(tmp_node);
-        flush_callback(cookie, (struct cmd*)tmp_node, count);
+        flush_callback(cookie, (Cmd*)tmp_node, count);
         list_add_tail(dest, tmp_node);
     }
 
     PTHREAD_CHK(pthread_mutex_unlock(&handle->queues[CMDFREE].mutex));
     PTHREAD_CHK(pthread_mutex_unlock(&handle->queues[CMDTODO].mutex));
 }
+
