@@ -365,11 +365,12 @@ static void *find_symbol(struct ctest *test, const char *fname)
 #endif
 
 #ifdef CTEST_SEGFAULT
+#include <sys/types.h>
 #include <signal.h>
 static void sighandler(int signum)
 {
     char msg[128];
-    sprintf(msg, "[SIGNAL %d: %s]", signum, sys_siglist[signum]);
+    sprintf(msg, "[SIGNAL %d]", signum);
     color_print(ANSI_BRED, msg);
     fflush(stdout);
 
