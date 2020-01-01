@@ -1,0 +1,91 @@
+module main_mod;
+
+import stdio local;
+import unistd local;
+import command_queue local;
+
+type Kind enum u8 {
+    Init,
+    Work,
+    Done,
+    Fast,
+}
+
+func const char* kind2str(Kind k) {
+    switch (k) {
+    case Kind.Init: return "INIT";
+    case Kind.Work: return "WORK";
+    case Kind.Done: return "DONE";
+    case Kind.Fast: return "FAST";
+    }
+    return "?";
+}
+
+type MyCmd struct {
+    Cmd cmd;
+    Kind kind;
+    u32 idx;
+}
+
+func void callback(void* arg, Cmd* c) {
+    MyCmd* cmd = to_container(MyCmd, cmd, c);
+    printf("CB %s  %u\n", kind2str(cmd.kind), cmd.idx);
+    switch (cmd.kind) {
+    case Kind.Init:
+        usleep(10000);
+        break;
+    case Kind.Work:
+        usleep(100000);
+        break;
+    case Kind.Done:
+        break;
+    case Kind.Fast:
+        usleep(5000);
+        break;
+    }
+}
+
+func void schedule_sync(Queue* queue, Kind k, u32 idx) {
+    MyCmd* cmd = cast<MyCmd*>(queue.getCmdSync());
+    cmd.kind = k;
+    cmd.idx = idx;
+    queue.sync_cmd(cmd);
+}
+
+func void schedule_async(Queue* queue, Kind k, u32 idx) {
+    MyCmd* cmd = cast<MyCmd*>(queue.getCmdSync());
+    cmd.kind = k;
+    cmd.idx = idx;
+    queue.async_cmd(cmd);
+}
+
+func void schedule_hi(Queue* queue, Kind k, u32 idx) {
+    MyCmd* cmd = cast<MyCmd*>(queue.getCmdSync());
+    cmd.kind = k;
+    cmd.idx = idx;
+    queue.sync_highprio_cmd(cmd);
+}
+
+public func i32 main() {
+    Queue* queue = create("myqueue", callback, nil, 16, sizeof(MyCmd));
+
+    schedule_sync(queue, Kind.Init, 1);
+    schedule_sync(queue, Kind.Work, 2);
+    schedule_sync(queue, Kind.Work, 3);
+    schedule_async(queue, Kind.Work, 4);
+    schedule_async(queue, Kind.Work, 5);
+    schedule_hi(queue, Kind.Fast, 6);       // should pass async above
+    schedule_async(queue, Kind.Work, 7);
+    schedule_sync(queue, Kind.Work, 8);
+    schedule_sync(queue, Kind.Work, 9);
+    schedule_async(queue, Kind.Work, 10);
+    schedule_async(queue, Kind.Work, 11);
+    printf("done scheduling\n");
+
+    schedule_sync(queue, Kind.Done, 12);
+    printf("done\n");
+
+    queue.destroy();
+    return 0;
+}
+

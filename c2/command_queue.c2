@@ -1,0 +1,253 @@
+module command_queue;
+
+import stdio local;
+import stdlib local;
+import pthread local;
+import linked_list;
+
+#define PTHREAD_CHK(expr) \
+    if (expr != 0) { \
+        fprintf(stderr, "System call error\n"); \
+        exit(EXIT_FAILURE); \
+    }
+
+#define Q_LOCK(q)       PTHREAD_CHK(pthread_mutex_lock(&handle.queues[q].mutex))
+#define Q_UNLOCK(q)     PTHREAD_CHK(pthread_mutex_unlock(&handle.queues[q].mutex))
+#define Q_WAIT(q)       PTHREAD_CHK(pthread_cond_wait(&handle.queues[q].cond, &handle.queues[q].mutex))
+#define Q_BROADCAST(q)  PTHREAD_CHK(pthread_cond_broadcast(&handle.queues[q].cond))
+
+type Mode enum u8 {
+    Async = 0x0,
+    Sync  = 0x1,
+}
+
+type Prio enum u8 {
+    Low  = 0x0,
+    High = 0x1,
+}
+
+type Q enum u8 {
+    Free = 0,
+    Todo,
+    Done,
+}
+
+public type Cmd struct {
+    linked_list.Element head;
+    u32 sync;   // Mode.Sync/Async
+}
+
+type InternalQueue struct {
+    linked_list.Element head_prio;
+    linked_list.Element head;
+    pthread.Mutex mutex;
+    pthread.Cond cond;
+}
+
+public type Queue struct {
+    InternalQueue[3] queues;    // FREE, TODO, DONE
+    const char* name;           // no ownership
+    pthread.Pthread tid;
+    i32 stop;
+    void* cookie;
+    Callback callback;
+    void* cmdlist;
+} @(opaque)
+
+public type Callback func void(void* cookie, Cmd* cmd);
+
+public func Queue* create(const char* name,
+                             Callback cb,
+                             void* cookie,
+                             u32 num_commands,
+                             u32 size_cmd)
+{
+    Queue* handle = calloc(1, sizeof(Queue));
+
+    for (u32 i=0; i<elemsof(handle.queues); i++) {
+        handle.queues[i].head_prio.init();
+        handle.queues[i].head.init();
+        PTHREAD_CHK(pthread_mutex_init(&handle.queues[i].mutex, 0))
+        PTHREAD_CHK(pthread_cond_init(&handle.queues[i].cond, 0))
+    }
+
+    handle.name = name;
+    handle.stop = 0;
+    handle.cookie = cookie;
+    handle.callback = cb;
+    handle.cmdlist = malloc(num_commands*size_cmd);
+
+    // NOTE: could use index instead of pointers, just add to circular buffer? (no linked lists)
+    u8* iter = cast<u8*>(handle.cmdlist);
+    for (u32 i=0; i<num_commands; i++) {
+        Cmd* cmd = cast<Cmd*>(iter);
+        handle.queues[Q.Free].head.addTail(&cmd.head);
+        iter += size_cmd;
+    }
+
+    PTHREAD_CHK(pthread_create(&handle.tid, 0, thread_func, handle))
+    return handle;
+}
+
+public func void Queue.destroy(Queue* handle) {
+    Q_LOCK(Q.Todo)
+    handle.stop = 1;
+    Q_BROADCAST(Q.Todo)
+    Q_UNLOCK(Q.Todo)
+
+    PTHREAD_CHK(pthread_join(handle.tid, 0))
+
+    for (u32 i=0; i<elemsof(handle.queues); i++) {
+        PTHREAD_CHK(pthread_mutex_destroy(&handle.queues[i].mutex))
+        PTHREAD_CHK(pthread_cond_destroy(&handle.queues[i].cond))
+    }
+
+    free(handle.cmdlist);
+    free(handle);
+}
+
+func void* thread_func(void* arg) {
+    Queue* handle = cast<Queue*>(arg);
+    Cmd dummy_cmd;
+
+    while (1) {
+        Cmd* cmd = &dummy_cmd;
+
+        Q_LOCK(Q.Todo)
+
+        while (handle.queues[Q.Todo].head.isEmpty() &&
+               handle.queues[Q.Todo].head_prio.isEmpty() &&
+               !handle.stop) {
+            Q_WAIT(Q.Todo)
+        }
+
+        if (!handle.stop) {
+            if (!handle.queues[Q.Todo].head_prio.isEmpty()) {
+                cmd = to_container(Cmd, head, handle.queues[Q.Todo].head_prio.next);
+                cmd.head.remove();
+            } else {
+                cmd = to_container(Cmd, head, handle.queues[Q.Todo].head.next);
+                cmd.head.remove();
+            }
+        }
+
+        Q_UNLOCK(Q.Todo)
+
+        if (handle.stop) break;
+
+        handle.callback(handle.cookie, cmd);
+
+        Q t = (cmd.sync == Mode.Sync) ? Q.Done : Q.Free;
+
+        Q_LOCK(t)
+        handle.queues[t].head.addTail(&cmd.head);
+        Q_BROADCAST(t)
+        Q_UNLOCK(t)
+    }
+
+    return 0;
+}
+
+public func Cmd* Queue.getCmdSync(Queue* handle) {
+    Cmd* cmd = handle.getCmdAsync();
+    if (!cmd) {
+        Q_LOCK(Q.Free)
+
+        while (handle.queues[Q.Free].head.isEmpty()) {
+            Q_WAIT(Q.Free)
+        }
+
+        linked_list.Element* node = handle.queues[Q.Free].head.next;
+        node.remove();
+        cmd = to_container(Cmd, head, node);
+
+        Q_UNLOCK(Q.Free)
+    }
+    return cmd;
+}
+
+public func Cmd* Queue.getCmdAsync(Queue* handle) {
+    Cmd* cmd = nil;
+    Q_LOCK(Q.Free)
+
+    if (!handle.queues[Q.Free].head.isEmpty()) {
+        linked_list.Element* node = handle.queues[Q.Free].head.next;
+        node.remove();
+        cmd = to_container(Cmd, head, node);
+    }
+
+    Q_UNLOCK(Q.Free)
+    return cmd;
+}
+
+func void Queue.schedule_cmd(Queue* handle, Cmd* cmd, Mode sync, Prio prio)
+{
+    linked_list.Element* list = (prio == Prio.Low) ? &handle.queues[Q.Todo].head : &handle.queues[Q.Todo].head_prio;
+    cmd.sync = sync;
+    Q_LOCK(Q.Todo)
+    list.addTail(&cmd.head);
+    Q_BROADCAST(Q.Todo)
+    Q_UNLOCK(Q.Todo)
+}
+
+func void Queue.wait_cmd(Queue* handle, Cmd* cmd)
+{
+    Q_LOCK(Q.Done)
+
+    while (!handle.queues[Q.Done].head.contains(&cmd.head)) {
+        Q_WAIT(Q.Done)
+    }
+
+    cmd.head.remove();
+    Q_UNLOCK(Q.Done)
+
+    Q_LOCK(Q.Free)
+    handle.queues[Q.Free].head.addFront(&cmd.head);
+    Q_BROADCAST(Q.Free)
+    Q_UNLOCK(Q.Free)
+}
+
+public func void Queue.sync_cmd(Queue* queue, Cmd* cmd)
+{
+    queue.schedule_cmd(cmd, Mode.Sync, Prio.Low);
+    queue.wait_cmd(cmd);
+}
+
+public func void Queue.sync_highprio_cmd(Queue* queue, Cmd* cmd)
+{
+    queue.schedule_cmd(cmd, Mode.Sync, Prio.High);
+    queue.wait_cmd(cmd);
+}
+
+public func void Queue.async_cmd(Queue* queue, Cmd* cmd)
+{
+    queue.schedule_cmd(cmd, Mode.Async, Prio.Low);
+}
+
+public type FlushCb func void(void* cookie, Cmd* cmd, u32* count);
+
+// only for async commands on the non prio head
+public func void Queue.flush(Queue* handle,
+                             FlushCb flush_callback,
+                             void* cookie,
+                             u32* count)
+{
+    Q_LOCK(Q.Todo)
+    Q_LOCK(Q.Free)
+
+    linked_list.Element* src = &handle.queues[Q.Todo].head;
+    linked_list.Element* dest = &handle.queues[Q.Free].head;
+
+    linked_list.Element* node = src.next;
+    while (node != src) {
+        linked_list.Element* tmp_node = node;
+        node = node.next;
+        tmp_node.remove();
+        if (flush_callback != nil) flush_callback(cookie, to_container(Cmd, head, tmp_node), count);
+        dest.addTail(tmp_node);
+    }
+
+    Q_UNLOCK(Q.Free)
+    Q_UNLOCK(Q.Todo)
+}
+
