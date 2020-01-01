@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define to_container(type, member, ptr) ((type *)((char *)(ptr)-(unsigned long)(&((type *)0)->member)))
+
 struct list_tag {
     struct list_tag *prev;
     struct list_tag *next;

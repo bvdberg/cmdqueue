@@ -1,8 +1,8 @@
 CCFLAGS=-Wall -Wextra -Wno-unused-parameter -Wshadow -std=c99 -O2 -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS
 
-COMMON_SOURCES=cmdqueue.c list.c mycmdqueue.c
+COMMON_SOURCES=cmdqueue.c list.c
 MAIN_SOURCES=main.c
-TEST_SOURCES=test/mytests.c test/testmain.c
+TEST_SOURCES=mycmdqueue.c test/mytests.c test/testmain.c
 HEADERS=cmdqueue.h test/ctest.h list.h mycmdqueue.h util.h
 
 all: run testrunner
