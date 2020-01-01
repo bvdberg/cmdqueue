@@ -11,10 +11,10 @@ import linked_list;
         exit(EXIT_FAILURE); \
     }
 
-#define Q_LOCK(q)       PTHREAD_CHK(pthread_mutex_lock(&handle.queues[q].mutex))
-#define Q_UNLOCK(q)     PTHREAD_CHK(pthread_mutex_unlock(&handle.queues[q].mutex))
-#define Q_WAIT(q)       PTHREAD_CHK(pthread_cond_wait(&handle.queues[q].cond, &handle.queues[q].mutex))
-#define Q_BROADCAST(q)  PTHREAD_CHK(pthread_cond_broadcast(&handle.queues[q].cond))
+#define Q_LOCK(q)       PTHREAD_CHK(pthread.mutex_lock(&handle.queues[q].mutex))
+#define Q_UNLOCK(q)     PTHREAD_CHK(pthread.mutex_unlock(&handle.queues[q].mutex))
+#define Q_WAIT(q)       PTHREAD_CHK(pthread.cond_wait(&handle.queues[q].cond, &handle.queues[q].mutex))
+#define Q_BROADCAST(q)  PTHREAD_CHK(pthread.cond_broadcast(&handle.queues[q].cond))
 
 type Mode enum u8 {
     Async = 0x0,
@@ -67,8 +67,8 @@ public func Queue* create(const char* name,
     for (u32 i=0; i<elemsof(handle.queues); i++) {
         handle.queues[i].head_prio.init();
         handle.queues[i].head.init();
-        PTHREAD_CHK(pthread_mutex_init(&handle.queues[i].mutex, 0))
-        PTHREAD_CHK(pthread_cond_init(&handle.queues[i].cond, 0))
+        PTHREAD_CHK(pthread.mutex_init(&handle.queues[i].mutex, 0))
+        PTHREAD_CHK(pthread.cond_init(&handle.queues[i].cond, 0))
     }
 
     handle.name = name;
@@ -85,7 +85,7 @@ public func Queue* create(const char* name,
         iter += size_cmd;
     }
 
-    PTHREAD_CHK(pthread_create(&handle.tid, 0, thread_func, handle))
+    PTHREAD_CHK(pthread.create(&handle.tid, 0, thread_func, handle))
     return handle;
 }
 
@@ -95,11 +95,11 @@ public func void Queue.destroy(Queue* handle) {
     Q_BROADCAST(Q.Todo)
     Q_UNLOCK(Q.Todo)
 
-    PTHREAD_CHK(pthread_join(handle.tid, 0))
+    PTHREAD_CHK(pthread.join(handle.tid, 0))
 
     for (u32 i=0; i<elemsof(handle.queues); i++) {
-        PTHREAD_CHK(pthread_mutex_destroy(&handle.queues[i].mutex))
-        PTHREAD_CHK(pthread_cond_destroy(&handle.queues[i].cond))
+        PTHREAD_CHK(pthread.mutex_destroy(&handle.queues[i].mutex))
+        PTHREAD_CHK(pthread.cond_destroy(&handle.queues[i].cond))
     }
 
     free(handle.cmdlist);
