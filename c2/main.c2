@@ -32,10 +32,10 @@ func void callback(void* arg, Cmd* c) {
     printf("CB %s  %u\n", kind2str(cmd.kind), cmd.idx);
     switch (cmd.kind) {
     case Kind.Init:
-        usleep(10000);
+        usleep(1000);
         break;
     case Kind.Work:
-        usleep(100000);
+        usleep(10000);
         break;
     case Kind.Done:
         break;
