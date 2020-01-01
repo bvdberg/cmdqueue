@@ -227,10 +227,7 @@ public func void Queue.async_cmd(Queue* queue, Cmd* cmd)
 public type FlushCb func void(void* cookie, Cmd* cmd, u32* count);
 
 // only for async commands on the non prio head
-public func void Queue.flush(Queue* handle,
-                             FlushCb flush_callback,
-                             void* cookie,
-                             u32* count)
+public func void Queue.flush(Queue* handle, FlushCb callback, void* cookie, u32* count)
 {
     Q_LOCK(Q.Todo)
     Q_LOCK(Q.Free)
@@ -243,7 +240,7 @@ public func void Queue.flush(Queue* handle,
         linked_list.Element* tmp_node = node;
         node = node.next;
         tmp_node.remove();
-        if (flush_callback != nil) flush_callback(cookie, to_container(Cmd, head, tmp_node), count);
+        if (callback != nil) callback(cookie, to_container(Cmd, head, tmp_node), count);
         dest.addTail(tmp_node);
     }
 
